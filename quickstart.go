@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 
@@ -89,7 +91,37 @@ func saveToken(file string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
+func backupDatabase() {
+
+	err := exec.Command("bash", "-c", `mysqldump -u `+dbUser+` -p`+dbPasswd+` wordpress > wordpress.sql`).Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func backupWordpress() {
+	err := exec.Command("bash", "-c", `tar cvzf wordpress.tar.gz `+wordpressHome).Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+var dbUser, dbPasswd, wordpressHome string
+
 func main() {
+	// Flags
+	flag.StringVar(&dbUser, "db.user", "root", "Database user")
+	flag.StringVar(&dbPasswd, "db.passwd", "", "Database password")
+	flag.StringVar(&wordpressHome, "wordpress.home", "/var/www/wordpress", "Wordpress home directory")
+	flag.Parse()
+
+	backupDatabase()
+	backupWordpress()
+	uploadToGoogleDrive()
+}
+
+func uploadToGoogleDrive() {
+
 	ctx := context.Background()
 
 	b, err := ioutil.ReadFile("client_secret.json")
@@ -108,17 +140,26 @@ func main() {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
 
-	fmt.Print("Creating file...")
-	file, err := os.Open("file.txt") // For read access.
+	fmt.Print("Backing up DB dump...")
+	file, err := os.Open("wordpress.sql") // For read access.
 	if err != nil {
 		log.Fatalf("Unable to read file:", err)
 	}
 
-	fileR, err := srv.Files.Create(&drive.File{Name: "file.txt"}).Media(file).Do()
+	_, err = srv.Files.Create(&drive.File{Name: "wordpress.sql"}).Media(file).Do()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Print(fileR)
+	fmt.Print("Backing up Wordpress home...")
+	file, err = os.Open("wordpress.tar.gz") // For read access.
+	if err != nil {
+		log.Fatalf("Unable to read file:", err)
+	}
+
+	_, err = srv.Files.Create(&drive.File{Name: "wordpress.tar.gz"}).Media(file).Do()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 }
